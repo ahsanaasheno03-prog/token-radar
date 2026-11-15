@@ -40,7 +40,7 @@
     [R.protocol_count, 'protocols scanned', ''],
     [R.watchlist_size, 'on the watchlist', 'amber'],
     [R.board_size, 'pre-token rows ranked', ''],
-    [R.early_size, 'early finds below the floor', ''],
+    [R.early_size, 'early finds off the list', ''],
     [money(R.total_implied_usd), 'total implied value', ''],
     [R.live_size, 'already live (set aside)', ''],
   ];
@@ -87,6 +87,13 @@
     var re = 1 + s.rpc * Math.min(Math.max(r.chains.length - 1, 0), 8);
     return Math.max(1, Math.round(r.tvl_usd * r.model.peer_multiple * g * se * re));
   }
+  $('sb-toggle').addEventListener('click', function () {
+    var body = $('sb-body');
+    var open = body.hidden;
+    body.hidden = !open;
+    $('sb-toggle').setAttribute('aria-expanded', String(open));
+    $('sb-toggle').querySelector('.chev').textContent = open ? '▾' : '▸';
+  });
   [sb.gw, sb.span, sb.rpc].forEach(function (el) { el.addEventListener('input', function () { sbRead(); renderBoard(); }); });
   $('sb-reset').addEventListener('click', function () {
     sb.gw.value = M.growth_weight; sb.span.value = M.seasoning_span; sb.rpc.value = M.reach_per_chain;
@@ -118,17 +125,32 @@
     return rows;
   }
 
+  var SEG_LABEL = { all: 'full board', watch: 'watchlist only', early: 'early finds only' };
+  var SORT_LABEL = { implied: 'implied value', tvl: 'TVL', growth: '7-day growth', age: 'time tokenless', name: 'name' };
   function renderBoard() {
     var rows = visibleRows();
     var maxIv = rows.reduce(function (m, r) { return Math.max(m, impliedOf(r)); }, 1);
+    var cap = '<strong>' + rows.length + ' protocols</strong> · ' + (SEG_LABEL[state.seg] || 'full board');
+    if (state.category !== 'all') cap += ' · category: ' + esc(state.category);
+    if (state.chain !== 'all') cap += ' · chain: ' + esc(state.chain);
+    if (state.q) cap += ' · matching “' + esc(state.q) + '”';
+    cap += ' · ranked by ' + (state.sandbox ? 'your sandbox weights' : SORT_LABEL[state.sort] || 'implied value');
+    $('board-caption').innerHTML = cap;
+    var ranked = state.sort === 'implied' && !state.sandbox;
     $('board-body').innerHTML = rows.map(function (r, i) {
       var iv = impliedOf(r);
+      var shownRank = ranked ? r.rank : i + 1;
+      var decorate = ranked && r.rank <= 3;
       var badge = r.on_watchlist
         ? '<span class="badge watch">WATCHLIST</span>'
         : '<span class="badge early">EARLY FIND</span>';
+      if (ranked && r.rank === 1) badge += '<span class="badge top">★ TOP PICK</span>';
+      var rankCell = decorate
+        ? '<span class="rank-pill r' + r.rank + '">' + r.rank + '</span>'
+        : String(shownRank);
       var age = r.age_days == null ? '—' : r.age_days.toLocaleString('en-US') + ' d';
-      return '<tr data-slug="' + esc(r.slug) + '">' +
-        '<td class="num rank">' + (state.sort === 'implied' && !state.sandbox ? r.rank : i + 1) + '</td>' +
+      return '<tr data-slug="' + esc(r.slug) + '"' + (decorate ? ' class="top' + r.rank + '"' : '') + '>' +
+        '<td class="num rank">' + rankCell + '</td>' +
         '<td><span class="pname">' + esc(r.name) + '</span>' + badge +
         '<div class="pmeta">' + esc(r.category || 'Uncategorised') + ' · ' + esc(r.chains.slice(0, 3).join(', ') || '—') +
         (r.chains.length > 3 ? ' +' + (r.chains.length - 3) : '') + '</div></td>' +
@@ -171,9 +193,15 @@
     var afterG = base * m.growth_multiplier;
     var afterS = afterG * m.seasoning_multiplier;
     var prev = R.rows[idx - 1], next = R.rows[idx + 1];
-    var nav = '<p class="pmeta">' +
-      (prev ? '<a href="#/p/' + esc(prev.slug) + '">← #' + prev.rank + ' ' + esc(prev.name) + '</a> · ' : '') +
+    var nav = '<p class="detail-nav">' +
+      (prev ? '<a href="#/p/' + esc(prev.slug) + '">← #' + prev.rank + ' ' + esc(prev.name) + '</a>' : '') +
       (next ? '<a href="#/p/' + esc(next.slug) + '">#' + next.rank + ' ' + esc(next.name) + ' →</a>' : '') + '</p>';
+    var takeaway = '<p class="takeaway">Implied launch value <b>' + money(r.implied_value_usd) + '</b> — ' +
+      (r.implied_value_usd / r.tvl_usd).toFixed(2) + '× its TVL, priced on ' +
+      (m.peer_basis === 'category'
+        ? 'the median of ' + m.peer_count + ' launched ' + esc(r.category || '') + ' peers'
+        : 'the global median of ' + m.peer_count + ' launched protocols') +
+      '. ' + (r.on_watchlist ? 'On the snapshot watchlist.' : 'An early find — not on the watchlist.') + '</p>';
     var peers = peersOf(r);
     var peerRows = peers.length ? peers.map(function (p) {
       return '<tr><td>' + esc(p.name) + ' (' + esc(p.symbol || '—') + ')</td><td class="num">' + money(p.mcap_usd) +
@@ -184,7 +212,7 @@
       '<div class="detail-head"><div><h2>' + esc(r.name) +
       (r.on_watchlist ? '<span class="badge watch">WATCHLIST</span>' : '<span class="badge early">EARLY FIND</span>') +
       '</h2><p class="pmeta">Rank #' + r.rank + ' of ' + R.board_size + ' · ' + esc(r.category || 'Uncategorised') +
-      ' · ' + esc(r.chains.join(', ') || 'no chains recorded') + ' · slug ' + esc(r.slug) + '</p></div></div>' + nav +
+      ' · ' + esc(r.chains.join(', ') || 'no chains recorded') + ' · slug ' + esc(r.slug) + '</p>' + takeaway + '</div></div>' + nav +
       '<div class="detail-grid"><div>' +
       '<div class="card"><h3>The protocol in figures</h3><div class="kv">' +
       '<div><b>' + full(r.tvl_usd) + '</b><span>TVL</span></div>' +
@@ -234,7 +262,9 @@
       '<div class="card"><h3>Who is on the board, and who is not</h3>' +
       '<p>The board ranks <b>' + R.board_size + ' pre-token protocols</b>: every one of the ' + R.watchlist_size +
       ' protocols on the snapshot\'s watchlist (TVL at or above ' + money(R.floor_usd) + ', no token recorded), plus ' + R.early_size +
-      ' early finds below that floor. A protocol is only ranked when it records no token <b>and</b> is not a wrapped, staked or bridged product of a token that already trades: bridge, liquid staking, restaking and exchange categories, names carrying a whole word wrapped / staked / staking, exchange-prefixed names and versioned pools (a name ending in V2, 2.0 and the like) are all set aside — ' +
+      ' early finds the watchlist does not name — most below that floor, ' +
+      R.rows.filter(function (r) { return !r.on_watchlist && r.tvl_usd >= R.floor_usd; }).length +
+      ' already above it. A protocol is only ranked when it records no token <b>and</b> is not a wrapped, staked or bridged product of a token that already trades: bridge, liquid staking, restaking and exchange categories, names carrying a whole word wrapped / staked / staking, exchange-prefixed names and versioned pools (a name ending in V2, 2.0 and the like) are all set aside — ' +
       R.derivative_size + ' such products in this snapshot. Their token, in substance, already exists.</p>' +
       '<p>The ' + R.live_size + ' protocols whose token already trades are never ranked. They sit under <b>Already live</b> at the market\'s own values, and they are the evidence the peer multiples are read from:</p>' +
       '<table class="mini"><tr><th>Category</th><th class="num">Launched peers</th><th class="num">Median mcap / TVL</th></tr>' +
@@ -250,6 +280,8 @@
     $('view-detail').hidden = view !== 'detail';
     document.querySelector('.controls').style.display = view === 'detail' ? 'none' : '';
     document.querySelector('.sandbox').style.display = view === 'detail' ? 'none' : '';
+    $('stats').style.display = view === 'detail' ? 'none' : '';
+    document.querySelector('.model-strip').style.display = view === 'detail' ? 'none' : '';
   }
   function route() {
     var h = location.hash || '#/';
