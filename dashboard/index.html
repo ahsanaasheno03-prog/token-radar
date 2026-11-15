@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Launch Radar — pre-token protocols, ranked by implied launch value</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <div class="brand-mark" aria-hidden="true"><span></span></div>
+    <div>
+      <h1>Launch Radar</h1>
+      <p class="tagline">Protocols with no token yet, ranked by what their launch would be worth — and how to farm each one.</p>
+    </div>
+  </div>
+  <div class="snapshot-note" id="snapshot-note"></div>
+</header>
+
+<section class="stats" id="stats" aria-label="Board summary"></section>
+
+<section class="model-strip" aria-label="How the value is derived">
+  <strong>The model.</strong>
+  <span>Implied value = TVL × <em>peer multiple</em> × <em>growth</em> × <em>seasoning</em> × <em>reach</em>. The peer multiple is the median market-cap / TVL of already-launched protocols in the same category, read from this snapshot — the market prices the guess, not a name list.</span>
+  <a href="#method" data-nav="method">Full methodology ↓</a>
+</section>
+
+<nav class="controls" aria-label="Board controls">
+  <div class="segments" role="tablist">
+    <button type="button" data-seg="all" class="seg is-on">Full board</button>
+    <button type="button" data-seg="watch" class="seg">Watchlist</button>
+    <button type="button" data-seg="early" class="seg">Early finds</button>
+    <button type="button" data-seg="live" class="seg">Already live</button>
+  </div>
+  <label class="ctl">Search
+    <input id="q" type="search" placeholder="Name, slug or category" autocomplete="off">
+  </label>
+  <label class="ctl">Category
+    <select id="f-category"><option value="all">All categories</option></select>
+  </label>
+  <label class="ctl">Chain
+    <select id="f-chain"><option value="all">All chains</option></select>
+  </label>
+  <label class="ctl">Sort by
+    <select id="f-sort">
+      <option value="implied">Implied value</option>
+      <option value="tvl">TVL</option>
+      <option value="growth">7-day growth</option>
+      <option value="age">Time tokenless</option>
+      <option value="name">Name</option>
+    </select>
+  </label>
+</nav>
+
+<section class="sandbox" aria-label="Model sandbox">
+  <span class="sandbox-title">Model sandbox — re-rank the board with your own weights:</span>
+  <label>Growth weight <input id="sb-growth" type="range" min="0" max="0.6" step="0.05"><b id="sb-growth-v"></b></label>
+  <label>Seasoning span <input id="sb-season" type="range" min="0" max="0.9" step="0.05"><b id="sb-season-v"></b></label>
+  <label>Reach / chain <input id="sb-reach" type="range" min="0" max="0.08" step="0.01"><b id="sb-reach-v"></b></label>
+  <button type="button" id="sb-reset">Reset to the shipped model</button>
+  <span class="sandbox-note" id="sb-note">Showing the shipped model, the one board.json carries.</span>
+</section>
+
+<main id="view-board">
+  <div class="table-wrap">
+    <table class="board">
+      <thead>
+        <tr>
+          <th class="num">#</th><th>Protocol</th><th class="num">TVL</th><th class="num">7d</th>
+          <th class="num">Tokenless</th><th class="num">Peer ×</th><th>Implied value</th><th class="num">IV / TVL</th>
+        </tr>
+      </thead>
+      <tbody id="board-body"></tbody>
+    </table>
+  </div>
+  <p class="row-count" id="row-count"></p>
+</main>
+
+<main id="view-live" hidden>
+  <p class="live-note">These protocols already have a token that trades, so the radar never ranks them. They are shown at the market's own values because they are the evidence: each category's peer multiple above is the median of this set's market-cap / TVL.</p>
+  <div class="table-wrap">
+    <table class="board">
+      <thead>
+        <tr><th>Protocol</th><th>Symbol</th><th>Category</th><th class="num">Market cap</th><th class="num">TVL</th><th class="num">Mcap / TVL</th><th class="num">7d</th></tr>
+      </thead>
+      <tbody id="live-body"></tbody>
+    </table>
+  </div>
+</main>
+
+<main id="view-detail" hidden></main>
+
+<section class="method" id="method">
+  <h2>Methodology</h2>
+  <div id="method-body"></div>
+</section>
+
+<footer>
+  <p>Implied value is this model's claim, worked out from the snapshot's own figures; it is not a prediction that a token will be issued, or investment advice. Farm plans carry real cost and smart-contract risk — amounts are starting sizes, not recommendations.</p>
+</footer>
+
+<script src="../data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
