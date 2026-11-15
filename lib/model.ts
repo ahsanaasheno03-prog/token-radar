@@ -156,7 +156,17 @@ export function peerTable(snapshot: Snapshot): PeerTable {
   return { byCategory, global: { multiple: clamp(median(all)), peers: all.length } };
 }
 
-/** The multiple one protocol is priced with: its category's, or the global one when peers are few. */
+/**
+ * The multiple one protocol is priced with: its category's, or the global one when peers are few.
+ * The three-peer floor is deliberate: with one or two launched peers a category's "median" is one
+ * protocol's accident, not a market price — in this snapshot the lone launched Risk Curators peer
+ * carries a market cap of 2.98x its TVL, while Onchain Capital Allocator's two launched peers
+ * median 0.01x. A credibility blend toward the global median was tested for those thin categories
+ * and rejected: it let that single 2.98x peer pull the whole curator complex to 0.90x and a lone
+ * prediction-market peer hit the 4x clamp, quadrupling the implied values of the board's largest
+ * rows on the strength of one protocol each. Three or more peers, or the global median of every
+ * priced peer: those are the two prices this model will state.
+ */
 export function multipleFor(p: SnapshotProtocol, table: PeerTable): PeerMultiple {
   const own = p.category === null ? undefined : table.byCategory.get(p.category);
   if (own !== undefined && own.peers >= MODEL.min_category_peers) {
@@ -392,16 +402,40 @@ function playbookFor(p: SnapshotProtocol, capital: number, chain: string): Playb
   };
 }
 
+/** The parts every farm plan for a protocol is built from, in one place. */
+interface PlanParts {
+  chain: string;
+  gas: GasTier;
+  capital: number;
+  weeks: number;
+  book: Playbook;
+}
+
+function planParts(p: SnapshotProtocol, age: number | null): PlanParts {
+  const chain = chainOf(p);
+  const capital = capitalFor(p);
+  return { chain, gas: gasFor(chain), capital, weeks: seasonWeeks(age), book: playbookFor(p, capital, chain) };
+}
+
+/** The board's one-line farm summary for a protocol: its position size, season and core action. */
+export interface FarmFacts {
+  capital_usd: number;
+  season_weeks: number;
+  action: string;
+}
+
+/** What the board shows of a protocol's plan before its detail view is opened. */
+export function farmFacts(p: SnapshotProtocol, age: number | null): FarmFacts {
+  const parts = planParts(p, age);
+  return { capital_usd: parts.capital, season_weeks: parts.weeks, action: parts.book.core };
+}
+
 /**
  * A protocol's farm plan: seven steps, each an action with what it costs and how long it takes,
  * derived from the protocol's own category, chains, TVL and age — never from its name.
  */
 export function farmPlan(p: SnapshotProtocol, age: number | null): string[] {
-  const chain = chainOf(p);
-  const gas = gasFor(chain);
-  const capital = capitalFor(p);
-  const weeks = seasonWeeks(age);
-  const book = playbookFor(p, capital, chain);
+  const { chain, gas, capital, weeks, book } = planParts(p, age);
   const multi = p.chains.length > 1 ? ` It runs on ${p.chains.length} chains; ${chain} is the cheapest place to start.` : '';
   return [
     `Set up a fresh wallet for ${p.name} alone and keep its seed phrase offline, on paper. Cost: no fee beyond ${gas.action} of gas for its first transaction on ${chain}. Time: 10 minutes.${multi}`,
@@ -430,6 +464,7 @@ export interface LiveRow {
 /** One board row as the dashboard renders it: the row, its plan and its model work. */
 export interface RadarRow extends BoardRow {
   implied_per_tvl: number;
+  farm: FarmFacts;
 }
 
 /** Everything the dashboard needs: the board, the live set, the multiples and the model. */
@@ -444,6 +479,7 @@ export interface RadarData {
   board_size: number;
   early_size: number;
   live_size: number;
+  priced_peer_size: number;
   derivative_size: number;
   total_implied_usd: number;
   category_multiples: { category: string; peers: number; multiple: number }[];
@@ -483,10 +519,14 @@ export function buildRadar(snapshot: Snapshot, model: ModelConstants = MODEL): {
     board_size: board.length,
     early_size: board.filter((r) => !r.on_watchlist).length,
     live_size: live.length,
+    priced_peer_size: table.global.peers,
     derivative_size: snapshot.protocols.filter((p) => isPreToken(p) && isDerivativeProduct(p)).length,
     total_implied_usd: board.reduce((sum, r) => sum + r.implied_value_usd, 0),
     category_multiples,
-    rows: board.map((r) => ({ ...r, implied_per_tvl: round4(r.implied_value_usd / r.tvl_usd) })),
+    rows: board.map((r) => {
+      const protocol = snapshot.protocols.find((p) => p.slug === r.slug)!;
+      return { ...r, implied_per_tvl: round4(r.implied_value_usd / r.tvl_usd), farm: farmFacts(protocol, r.age_days) };
+    }),
     live,
   };
   return { board, radar };

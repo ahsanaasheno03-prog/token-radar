@@ -27,6 +27,11 @@
     return '<span class="' + cls + '">' + (n > 0 ? '+' : '') + n.toFixed(1) + '%</span>';
   };
   var mult = function (n) { return n == null ? '—' : n.toFixed(3) + '×'; };
+  var trunc = function (s, n) {
+    if (s.length <= n) return s;
+    var cut = s.slice(0, n), sp = cut.lastIndexOf(' ');
+    return (sp > 40 ? cut.slice(0, sp) : cut) + '…';
+  };
 
   var state = {
     seg: 'all', q: '', category: 'all', chain: 'all', sort: 'implied',
@@ -153,7 +158,9 @@
         '<td class="num rank">' + rankCell + '</td>' +
         '<td><span class="pname">' + esc(r.name) + '</span>' + badge +
         '<div class="pmeta">' + esc(r.category || 'Uncategorised') + ' · ' + esc(r.chains.slice(0, 3).join(', ') || '—') +
-        (r.chains.length > 3 ? ' +' + (r.chains.length - 3) : '') + '</div></td>' +
+        (r.chains.length > 3 ? ' +' + (r.chains.length - 3) : '') + '</div>' +
+        (r.farm ? '<div class="pfarm">Farm · $' + r.farm.capital_usd + ' position · ' + r.farm.season_weeks +
+          '-week season — ' + esc(trunc(r.farm.action, 118)) + '</div>' : '') + '</td>' +
         '<td class="num">' + money(r.tvl_usd) + '</td>' +
         '<td class="num">' + pct(r.change_7d) + '</td>' +
         '<td class="num">' + age + '</td>' +
@@ -207,6 +214,22 @@
       return '<tr><td>' + esc(p.name) + ' (' + esc(p.symbol || '—') + ')</td><td class="num">' + money(p.mcap_usd) +
         '</td><td class="num">' + money(p.tvl_usd) + '</td><td class="num">' + mult(p.multiple) + '</td></tr>';
     }).join('') : '<tr><td colspan="4">No launched peers in this category — the board prices it on the global median instead.</td></tr>';
+    var catInfo = null;
+    R.category_multiples.forEach(function (c) { if (c.category === (r.category || 'Uncategorised')) catInfo = c; });
+    var basisNote;
+    if (m.peer_basis === 'category') {
+      basisNote = 'Priced on the category median: ' + m.peer_count + ' launched ' + esc(r.category || '') +
+        ' protocols carry a recorded market cap — the largest are above, and the median of all ' + m.peer_count +
+        ' is ' + m.peer_multiple.toFixed(3) + '×.';
+    } else if (catInfo && catInfo.peers > 0) {
+      basisNote = 'Only ' + catInfo.peers + ' launched ' + esc(r.category || 'this category') +
+        (catInfo.peers === 1 ? ' protocol carries' : ' protocols carry') + ' a recorded market cap (median ' +
+        catInfo.multiple.toFixed(3) + '×) — too few to price a category on — so this row is priced on the global median of ' +
+        R.priced_peer_size + ' launched protocols, ' + m.peer_multiple.toFixed(3) + '×.';
+    } else {
+      basisNote = 'No launched protocol in its category carries a recorded market cap, so this row is priced on the global median of ' +
+        R.priced_peer_size + ' launched protocols, ' + m.peer_multiple.toFixed(3) + '×.';
+    }
     $('view-detail').innerHTML =
       '<button type="button" class="back" id="d-back">← Back to the board</button>' +
       '<div class="detail-head"><div><h2>' + esc(r.name) +
@@ -236,7 +259,7 @@
       '<tr class="total"><td>Implied launch value</td><td class="num">' + full(r.implied_value_usd) + '</td></tr></table>' +
       '<div class="peers"><h3>Launched peers in ' + esc(r.category || 'this category') + '</h3>' +
       '<table class="mini"><tr><th>Protocol</th><th class="num">Market cap</th><th class="num">TVL</th><th class="num">Mcap / TVL</th></tr>' +
-      peerRows + '</table></div>' +
+      peerRows + '</table><p class="basis-note">' + basisNote + '</p></div>' +
       '</div></div>' +
       '<div class="card"><h3>Farm plan — how to be positioned if it launches</h3><ol class="steps">' +
       r.farm_steps.map(function (s) { return '<li>' + esc(s) + '</li>'; }).join('') +
@@ -250,12 +273,25 @@
     var multRows = R.category_multiples.slice(0, 16).map(function (c) {
       return '<tr><td>' + esc(c.category) + '</td><td class="num">' + c.peers + '</td><td class="num">' + c.multiple.toFixed(3) + '×</td></tr>';
     }).join('');
+    var byCatName = {};
+    R.category_multiples.forEach(function (c) { byCatName[c.category] = c; });
+    var thinExample = 'With one or two peers the median is one protocol\'s accident, not a market price.';
+    if (byCatName['Risk Curators'] && byCatName['Onchain Capital Allocator']) {
+      thinExample = 'In this snapshot the lone launched Risk Curators peer carries a market cap of ' +
+        byCatName['Risk Curators'].multiple.toFixed(2) + '× its TVL, while Onchain Capital Allocator\'s two launched peers median ' +
+        byCatName['Onchain Capital Allocator'].multiple.toFixed(2) + '× — one or two peers are one protocol\'s accident, not a market price.';
+    }
+    var top = R.rows[0];
+    var workedPlan = top ? '<div class="card"><h3>One complete plan, as the board carries it</h3>' +
+      '<p>Rank #1, <b>' + esc(top.name) + '</b> — the same seven steps its detail view carries, generated from its own category, first chain, TVL and age:</p>' +
+      '<ol class="steps">' + top.farm_steps.map(function (s) { return '<li>' + esc(s) + '</li>'; }).join('') + '</ol></div>' : '';
     $('method-body').innerHTML =
       '<div class="card"><h3>The formula</h3>' +
       '<p><code>implied = TVL × peer multiple × growth × seasoning × reach</code>, every input read from the sealed snapshot of ' +
       esc(R.as_of) + ' (' + esc(R.source) + '). No protocol name is special-cased anywhere in the model: one function prices every row, and each row of the board carries its own factors so the working can be checked.</p>' +
       '<ul>' +
-      '<li><b>Peer multiple.</b> For the protocol\'s category, the median market-cap / TVL of protocols whose token already trades. A category with fewer than 3 launched peers falls back to the median of every launched protocol in the snapshot with a recorded market cap. The multiple is clamped between 0.02× and 4× so one wild category cannot carry a board.</li>' +
+      '<li><b>Peer multiple.</b> For the protocol\'s category, the median market-cap / TVL of protocols whose token already trades. A category with fewer than 3 launched peers falls back to the median of every launched protocol in the snapshot with a recorded market cap. The multiple is clamped between 0.02× and 4× so one wild category cannot carry a board. The pricing evidence is the ' + R.priced_peer_size + ' launched protocols that carry a recorded market cap, of the ' + R.live_size + ' whose token trades — the rest record no market cap and cannot price anything.</li>' +
+      '<li><b>Why three peers.</b> ' + thinExample + ' So below three launched peers a category does not price its own rows at all: they are priced on the global median instead, and each such row\'s detail view says so and names the thin evidence it set aside.</li>' +
       '<li><b>Growth.</b> <code>1 + clamp(7d TVL change, −40%, +100%) × 0.30</code>. Unreported growth counts as neutral, never as zero.</li>' +
       '<li><b>Seasoning.</b> <code>0.85 + 0.45 × (1 − e^(−age / 540 days))</code>: the longer a protocol has run with no token, the more of its value is still undistributed. An unreported listing date counts as neutral.</li>' +
       '<li><b>Reach.</b> <code>1 + 0.03 × min(chains − 1, 8)</code>: each extra chain is an audience a launch reaches on day one.</li></ul></div>' +
@@ -270,11 +306,13 @@
       '<table class="mini"><tr><th>Category</th><th class="num">Launched peers</th><th class="num">Median mcap / TVL</th></tr>' +
       multRows + '</table></div>' +
       '<div class="card"><h3>Farm plans</h3>' +
-      '<p>Every row carries a seven-step plan generated from its own record — its category\'s playbook (supply and borrow for lending, liquidity for a DEX, a vault for a curator, margin for a derivatives venue), the gas price of its first chain, a position size scaled to its TVL, and a season length set by its age. Each step states what it costs and how long it takes. The plans are starting points for a reader\'s own research, not instructions to invest.</p></div>';
+      '<p>Every row carries a seven-step plan generated from its own record — its category\'s playbook (supply and borrow for lending, liquidity for a DEX, a vault for a curator, margin for a derivatives venue), the gas price of its first chain, a position size scaled to its TVL, and a season length set by its age. Each step states what it costs and how long it takes. The board itself shows each row\'s position size, season length and core step, so the plan is visible before a row is opened; the detail view carries the whole plan. The plans are starting points for a reader\'s own research, not instructions to invest.</p></div>' +
+      workedPlan;
   }
 
   /* ---------- routing ---------- */
   function show(view) {
+    document.body.classList.toggle('is-detail', view === 'detail');
     $('view-board').hidden = view !== 'board';
     $('view-live').hidden = view !== 'live';
     $('view-detail').hidden = view !== 'detail';
